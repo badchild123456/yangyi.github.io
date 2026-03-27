@@ -10,6 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <!-- 引入 FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 🌟 引入 SweetAlert2 (取代原生 alert/confirm) -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
         thead th { position: sticky; top: 0; z-index: 10; }
@@ -18,6 +20,8 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         body.modal-open { overflow: hidden; }
+        /* 優化 SweetAlert 字體 */
+        div:where(.swal2-container) { font-family: inherit; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen font-sans flex flex-col">
@@ -137,13 +141,12 @@
 
         // 全域資料與分頁狀態
         let allData =[];
-        let currentFilteredData = []; // 儲存搜尋後的結果，用於分頁
+        let currentFilteredData =[];
         let headers =[];
         let currentEditDocId = null;
         
-        // 分頁設定
         let currentPage = 1;
-        const ITEMS_PER_PAGE = 50; // 每頁顯示 50 筆
+        const ITEMS_PER_PAGE = 50;
 
         // DOM 元素
         const UI = {
@@ -160,7 +163,6 @@
             closeModalBtn: document.getElementById('closeModalBtn'),
             cancelEditBtn: document.getElementById('cancelEditBtn'),
             saveEditBtn: document.getElementById('saveEditBtn'),
-            // 分頁元素
             paginationInfo: document.getElementById('paginationInfo'),
             prevPageBtn: document.getElementById('prevPageBtn'),
             nextPageBtn: document.getElementById('nextPageBtn'),
@@ -175,7 +177,7 @@
                 UI.importBtn.classList.remove('hidden');
             } catch (error) {
                 console.error("初始化失敗:", error);
-                showError("無法連接資料庫。請確認網路連線或 Firebase 設定。");
+                Swal.fire('連線失敗', '無法連接資料庫。請確認網路連線或 Firebase 設定。', 'error');
             }
         }
 
@@ -190,6 +192,13 @@
             querySnapshot.forEach((doc) => {
                 let data = doc.data();
                 data._id = doc.id;
+                
+                // 🌟 自動資料清洗：將資料庫中舊的 '_1' 欄位自動轉換成 '備註'
+                if (data['_1'] !== undefined) {
+                    data['備註'] = data['_1'];
+                    delete data['_1'];
+                }
+                
                 allData.push(data);
             });
 
@@ -199,20 +208,31 @@
                     Object.keys(item).forEach(k => { if(k !== '_id') headerSet.add(k); });
                 });
                 
+                // 🌟 智慧型欄位排序邏輯
                 headers = Array.from(headerSet).sort((a, b) => {
-                    if(a === '健保碼') return -1;
-                    if(b === '健保碼') return 1;
-                    if(a === '藥品名稱') return -1;
-                    if(b === '藥品名稱') return 1;
-                    return 0;
+                    // 定義欄位權重：越小排越前面，越大排越後面
+                    const getWeight = (key) => {
+                        if (key.includes('代碼') || key.includes('健保碼')) return -100; // 第一欄
+                        if (key.includes('中文')) return -50;
+                        if (key.includes('英文')) return -40;
+                        if (key === '備註') return 100; // 最後一欄 (操作的前面)
+                        return 0; // 其他放中間
+                    };
+                    
+                    const weightA = getWeight(a);
+                    const weightB = getWeight(b);
+                    
+                    // 如果權重不同，依權重排序
+                    if (weightA !== weightB) return weightA - weightB;
+                    // 如果權重相同，依筆畫或字母排序
+                    return a.localeCompare(b);
                 });
 
                 renderTableHead();
                 
-                // 初始化分頁資料
                 currentFilteredData =[...allData]; 
                 currentPage = 1;
-                renderPage(); // 呼叫分頁渲染函數
+                renderPage(); 
                 
                 UI.statusMessage.classList.add('hidden');
                 UI.tableContainer.classList.remove('hidden');
@@ -245,28 +265,20 @@
             UI.tableHead.appendChild(tr);
         }
 
-        // ==========================================
-        // 🌟 新增：分頁核心邏輯
-        // ==========================================
+        // 分頁核心邏輯
         function renderPage() {
             const totalItems = currentFilteredData.length;
             const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
             
-            // 安全防護：確保當前頁碼在合理範圍
             if (currentPage < 1) currentPage = 1;
             if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
 
-            // 計算切片的起訖點
             const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
             const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
             
-            // 擷取當前頁面該顯示的資料
             const pageData = currentFilteredData.slice(startIndex, endIndex);
 
-            // 渲染表格內容
             renderTableBody(pageData);
-
-            // 更新分頁控制列介面
             updatePaginationUI(totalItems, totalPages, startIndex, endIndex);
         }
 
@@ -318,19 +330,14 @@
                 return;
             }
 
-            // 更新文字資訊
             UI.paginationInfo.innerHTML = `顯示第 <span class="font-bold text-slate-800">${startIndex + 1}</span> 到 <span class="font-bold text-slate-800">${endIndex}</span> 筆，共 <span class="font-bold text-slate-800">${totalItems}</span> 筆`;
-
-            // 更新按鈕狀態
             UI.prevPageBtn.disabled = currentPage === 1;
             UI.nextPageBtn.disabled = currentPage === totalPages;
 
-            // 動態產生頁碼按鈕 (只顯示前後幾頁，避免按鈕過多)
             UI.pageNumbers.innerHTML = '';
             let startPage = Math.max(1, currentPage - 2);
             let endPage = Math.min(totalPages, startPage + 4);
             
-            // 修正結尾頁碼不足時的補齊邏輯
             if (endPage - startPage < 4) {
                 startPage = Math.max(1, endPage - 4);
             }
@@ -347,14 +354,11 @@
             }
         }
 
-        // ==========================================
-        // 搜尋邏輯 (整合分頁)
-        // ==========================================
         function handleSearch(e) {
             const keyword = e.target.value.toLowerCase().trim();
             
             if (keyword === '') {
-                currentFilteredData = [...allData];
+                currentFilteredData =[...allData];
             } else {
                 currentFilteredData = allData.filter(row => {
                     return Object.entries(row).some(([key, value]) => {
@@ -364,11 +368,10 @@
                 });
             }
             
-            currentPage = 1; // 搜尋時永遠回到第一頁
+            currentPage = 1; 
             renderPage();
         }
 
-        // 編輯視窗邏輯
         function openEditModal(rowData) {
             currentEditDocId = rowData._id;
             UI.editFormContainer.innerHTML = '';
@@ -387,7 +390,8 @@
                 if(isLongText) input.rows = 3;
                 else input.type = 'text';
                 
-                if(header === '健保碼') {
+                // 鎖定主要代碼防呆
+                if(header.includes('代碼') || header === '健保碼') {
                     input.disabled = true;
                     input.className += ' bg-slate-100 text-slate-500 cursor-not-allowed';
                 }
@@ -426,7 +430,6 @@
                 const docRef = doc(db, COLLECTION_NAME, currentEditDocId);
                 await updateDoc(docRef, updatedData);
 
-                // 同步更新本地端 allData 與 currentFilteredData
                 const dataIndex = allData.findIndex(item => item._id === currentEditDocId);
                 if(dataIndex > -1) allData[dataIndex] = { ...updatedData, _id: currentEditDocId };
 
@@ -434,42 +437,66 @@
                 if(filteredIndex > -1) currentFilteredData[filteredIndex] = { ...updatedData, _id: currentEditDocId };
 
                 closeEditModal();
-                
-                // 重新渲染當前頁面 (不會跳回第一頁！)
                 renderPage(); 
                 
-                // 顯示一個輕量化的小提示 (不阻斷畫面)
-                const toast = document.createElement('div');
-                toast.className = 'fixed bottom-4 right-4 bg-slate-800 text-white px-4 py-2 rounded shadow-lg z-50 animate-bounce';
-                toast.innerHTML = '<i class="fa-solid fa-check text-green-400 mr-2"></i>資料已更新';
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 2500);
+                // 🌟 SweetAlert2 Toast (取代原來的 alert 或自訂 DOM)
+                Swal.fire({
+                    toast: true,
+                    position: 'bottom-end',
+                    icon: 'success',
+                    title: '資料已成功更新',
+                    showConfirmButton: false,
+                    timer: 2000,
+                    timerProgressBar: true
+                });
 
             } catch (error) {
                 console.error("儲存失敗:", error);
-                alert('❌ 儲存失敗。請確認您的權限設定。');
+                Swal.fire('錯誤', '儲存失敗。請確認您的權限設定。', 'error');
             } finally {
                 UI.saveEditBtn.innerHTML = originalBtnHtml;
                 UI.saveEditBtn.disabled = false;
             }
         }
 
-        // ==========================================
-        // 🌟 新增：雙重防呆匯入機制
-        // ==========================================
-        function importFromGoogleSheets() {
-            // 第一道防護：常規警告
-            const firstConfirm = confirm("⚠️ 警告：系統即將從 Google Sheets 抓取大量資料覆寫至 Firebase。\n\n※ 這通常只在「第一次初始化系統」時使用。\n您確定要繼續嗎？");
-            if(!firstConfirm) return;
+        // 🌟 升級的 SweetAlert2 雙重防呆匯入機制
+        async function importFromGoogleSheets() {
+            // 第一道防護
+            const result1 = await Swal.fire({
+                title: '⚠️ 嚴重警告',
+                text: '系統即將從 Google Sheets 抓取大量資料覆寫至 Firebase。這通常只在「第一次初始化系統」時使用。您確定要繼續嗎？',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#f97316',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: '是的，我要繼續',
+                cancelButtonText: '取消'
+            });
 
-            // 第二道防護：文字驗證 (業界最高標準防呆)
-            const secondConfirm = prompt("🔒 安全確認：\n為了防止意外覆蓋資料，請在下方輸入「確認匯入」四個字來解鎖執行：");
-            if(secondConfirm !== "確認匯入") {
-                alert("已取消匯入。輸入錯誤或使用者主動取消。");
-                return;
-            }
+            if (!result1.isConfirmed) return;
 
-            // 通過雙重防護，開始執行
+            // 第二道防護：文字驗證
+            const result2 = await Swal.fire({
+                title: '🔒 安全解鎖',
+                text: '為防止意外覆蓋資料，請在下方輸入「確認匯入」四個字來解鎖：',
+                input: 'text',
+                inputPlaceholder: '請輸入：確認匯入',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonText: '取消',
+                confirmButtonText: '強制匯入',
+                preConfirm: (inputValue) => {
+                    if (inputValue !== '確認匯入') {
+                        Swal.showValidationMessage('輸入錯誤，請輸入「確認匯入」');
+                        return false;
+                    }
+                    return true;
+                }
+            });
+
+            if (!result2.isConfirmed) return;
+
+            // 開始匯入
             UI.importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 處理中...';
             UI.importBtn.disabled = true;
 
@@ -489,11 +516,17 @@
                             const cleanRow = {};
                             for (const key in row) {
                                 if (key && key.trim() !== '') {
-                                    cleanRow[key] = row[key];
+                                    // 🌟 自動修正：匯入時若遇到 _1 欄位，直接存為 '備註'
+                                    let finalKey = key;
+                                    if (key === '_1') finalKey = '備註';
+                                    cleanRow[finalKey] = row[key];
                                 }
                             }
-
-                            const docId = cleanRow['健保碼'] ? cleanRow['健保碼'].trim() : `auto_${Date.now()}_${count}`;
+                            
+                            // 支援舊的「健保碼」或目前的「藥品代碼」當作 ID
+                            const idValue = cleanRow['藥品代碼'] || cleanRow['健保碼'];
+                            const docId = idValue ? idValue.trim() : `auto_${Date.now()}_${count}`;
+                            
                             await setDoc(doc(db, COLLECTION_NAME, docId), cleanRow);
                             count++;
                             
@@ -501,11 +534,19 @@
                                 UI.importBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 已寫入 ${count} 筆...`;
                             }
                         }
-                        alert(`🎉 成功匯入 ${count} 筆資料！\n畫面即將重新整理。`);
-                        window.location.reload();
+                        
+                        Swal.fire({
+                            title: '成功！',
+                            text: `🎉 成功匯入 ${count} 筆資料！\n畫面即將重新整理。`,
+                            icon: 'success',
+                            confirmButtonText: '確定'
+                        }).then(() => {
+                            window.location.reload();
+                        });
+
                     } catch (error) {
                         console.error("匯入失敗:", error);
-                        alert("匯入失敗！請打開 F12 查看錯誤。");
+                        Swal.fire('匯入失敗', '請打開開發者工具 (F12) 查看錯誤。', 'error');
                         UI.importBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料';
                         UI.importBtn.disabled = false;
                     }
@@ -530,7 +571,6 @@
             UI.saveEditBtn.addEventListener('click', saveEditData);
             UI.importBtn.addEventListener('click', importFromGoogleSheets);
             
-            // 分頁按鈕事件
             UI.prevPageBtn.addEventListener('click', () => {
                 if(currentPage > 1) {
                     currentPage--;
@@ -548,10 +588,6 @@
             UI.editModal.addEventListener('click', (e) => {
                 if (e.target === UI.editModal) closeEditModal();
             });
-        }
-
-        function showError(msg) {
-            UI.statusMessage.innerHTML = `<div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-6 rounded shadow-sm max-w-lg text-left"><p class="font-bold">系統錯誤</p><p class="text-sm mt-2">${msg}</p></div>`;
         }
 
         window.addEventListener('DOMContentLoaded', init);
