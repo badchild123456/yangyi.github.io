@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>健保藥品查詢與管理系統</title>
-    <!-- 引入 Tailwind CSS -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 PapaParse -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <!-- 引入 FontAwesome -->
+    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- 🌟 引入 SweetAlert2 (取代原生 alert/confirm) -->
+    <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- SheetJS (Excel 匯入匯出) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     
     <style>
         thead th { position: sticky; top: 0; z-index: 10; }
@@ -20,8 +20,14 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         body.modal-open { overflow: hidden; }
-        /* 優化 SweetAlert 字體 */
         div:where(.swal2-container) { font-family: inherit; }
+        mark.search-highlight {
+            background-color: #fde047;
+            color: #0f172a;
+            padding: 0 0.2rem;
+            border-radius: 0.125rem;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen font-sans flex flex-col">
@@ -29,28 +35,41 @@
     <div class="max-w-7xl mx-auto px-4 py-8 flex-grow w-full">
         
         <!-- Header 區塊 -->
-        <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
-            <div>
-                <h1 class="text-3xl font-bold text-blue-700 flex items-center justify-center md:justify-start gap-3">
+        <header class="mb-8 flex flex-col lg:flex-row justify-between items-center gap-4">
+            <div class="text-center lg:text-left">
+                <h1 class="text-3xl font-bold text-blue-700 flex items-center justify-center lg:justify-start gap-3">
                     <i class="fa-solid fa-database"></i> 藥品管理系統
                 </h1>
-                <p class="text-slate-500 mt-2 text-sm">支援全欄位搜尋、資料分頁與即時線上修改</p>
+                <p class="text-slate-500 mt-2 text-sm">支援高亮搜尋、新增刪除、即時編輯與 Excel 匯出入</p>
             </div>
             
-            <div class="flex gap-2 w-full md:w-auto flex-col md:flex-row">
+            <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
                 <!-- 搜尋框 -->
-                <div class="relative flex-grow md:w-80">
+                <div class="relative w-full sm:w-64">
                     <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                         <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
                     </div>
                     <input type="text" id="searchInput" 
-                        class="bg-white border border-slate-300 text-slate-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 shadow-sm transition-all" 
-                        placeholder="搜尋藥品..." disabled>
+                        class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 shadow-sm transition-all" 
+                        placeholder="搜尋藥品關鍵字..." disabled>
                 </div>
-                <!-- 匯入按鈕 -->
-                <button id="importBtn" class="bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm hidden flex items-center justify-center gap-2" title="從Google Sheets匯入資料">
-                    <i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料
-                </button>
+
+                <!-- 工具列按鈕群 -->
+                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-center">
+                    <!-- 🌟 新增按鈕 -->
+                    <button id="addBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-50" title="手動新增一筆藥品資料" disabled>
+                        <i class="fa-solid fa-plus"></i> 新增藥品
+                    </button>
+
+                    <input type="file" id="excelFileInput" class="hidden" accept=".xlsx, .xls, .csv">
+                    <button id="importExcelBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm flex items-center justify-center gap-2" title="從本機上傳 Excel 更新資料">
+                        <i class="fa-solid fa-file-import"></i> 匯入
+                    </button>
+                    
+                    <button id="exportExcelBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-50" title="將目前的資料匯出為 Excel" disabled>
+                        <i class="fa-solid fa-file-export"></i> 匯出
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -62,7 +81,6 @@
 
         <!-- 表格與分頁區塊 -->
         <div id="tableContainer" class="bg-white rounded-xl shadow-md overflow-hidden hidden border border-slate-200 flex flex-col">
-            <!-- 表格本體 -->
             <div class="overflow-x-auto" style="min-height: 50vh; max-height: 65vh;">
                 <table class="w-full text-sm text-left text-slate-600">
                     <thead id="tableHead" class="text-xs text-slate-700 uppercase bg-slate-100 shadow-sm">
@@ -72,26 +90,20 @@
                         <!-- 資料 -->
                     </tbody>
                 </table>
-                <!-- 無搜尋結果提示 -->
                 <div id="noDataMessage" class="hidden py-16 text-center text-slate-500">
                     <i class="fa-regular fa-folder-open text-5xl mb-4 text-slate-300"></i>
                     <p class="text-lg">找不到符合條件的藥品</p>
                 </div>
             </div>
 
-            <!-- 分頁控制項 (Pagination) -->
             <div class="bg-slate-50 px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div class="text-sm text-slate-600 text-center sm:text-left w-full sm:w-auto" id="paginationInfo">
-                    <!-- 顯示第 1 到 50 筆，共 1000 筆 -->
-                </div>
+                <div class="text-sm text-slate-600 text-center sm:text-left w-full sm:w-auto" id="paginationInfo"></div>
                 <div class="flex space-x-2">
-                    <button id="prevPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1">
+                    <button id="prevPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 transition-colors flex items-center gap-1">
                         <i class="fa-solid fa-chevron-left"></i> 上一頁
                     </button>
-                    <div id="pageNumbers" class="hidden sm:flex items-center space-x-1">
-                        <!-- 頁碼按鈕會動態產生在這裡 -->
-                    </div>
-                    <button id="nextPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1">
+                    <div id="pageNumbers" class="hidden sm:flex items-center space-x-1"></div>
+                    <button id="nextPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 transition-colors flex items-center gap-1">
                         下一頁 <i class="fa-solid fa-chevron-right"></i>
                     </button>
                 </div>
@@ -100,31 +112,33 @@
 
     </div>
 
-    <!-- 編輯彈出視窗 (Modal) -->
-    <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900 bg-opacity-50 flex items-center justify-center p-4 transition-opacity">
+    <!-- 新增/編輯 彈出視窗 (Modal) -->
+    <div id="formModal" class="fixed inset-0 z-50 hidden bg-slate-900 bg-opacity-50 flex items-center justify-center p-4 transition-opacity">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all">
             <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                <h3 class="text-lg font-bold text-slate-800"><i class="fa-solid fa-pen-to-square text-blue-600 mr-2"></i>編輯藥品資料</h3>
+                <!-- 標題會根據新增或編輯動態改變 -->
+                <h3 id="modalTitle" class="text-lg font-bold text-slate-800">
+                    <i class="fa-solid fa-pen-to-square text-blue-600 mr-2"></i>表單
+                </h3>
                 <button id="closeModalBtn" class="text-slate-400 hover:text-slate-600 focus:outline-none">
                     <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
             </div>
-            <div class="px-6 py-4 max-h-[60vh] overflow-y-auto" id="editFormContainer">
-                <!-- 表單欄位將由 JS 動態生成 -->
-            </div>
+            <div class="px-6 py-4 max-h-[60vh] overflow-y-auto" id="formContainer"></div>
             <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-                <button id="cancelEditBtn" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">取消</button>
-                <button id="saveEditBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                    <i class="fa-solid fa-floppy-disk"></i> 儲存修改
+                <button id="cancelFormBtn" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">取消</button>
+                <button id="saveFormBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-floppy-disk"></i> 儲存
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (包含 deleteDoc) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-        import { getFirestore, collection, getDocs, doc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+        // 🌟 引入 deleteDoc 供刪除功能使用
+        import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEkSyqTnL2-O_W2VVu11lyhYbNOOq1EjI",
@@ -139,52 +153,60 @@
         const db = getFirestore(app);
         const COLLECTION_NAME = "medicines";
 
-        // 全域資料與分頁狀態
         let allData =[];
-        let currentFilteredData =[];
+        let currentFilteredData = [];
         let headers =[];
-        let currentEditDocId = null;
+        
+        // 狀態管理
+        let currentEditDocId = null; 
+        let isEditMode = false; // 🌟 判斷是新增還是編輯
+        let currentSearchKeyword = ''; 
+        let idHeaderName = ''; // 記錄主鍵的欄位名稱 (如:藥品代碼)
         
         let currentPage = 1;
         const ITEMS_PER_PAGE = 50;
 
-        // DOM 元素
         const UI = {
             searchInput: document.getElementById('searchInput'),
             statusMessage: document.getElementById('statusMessage'),
-            statusText: document.getElementById('statusText'),
             tableContainer: document.getElementById('tableContainer'),
             tableHead: document.getElementById('tableHead'),
             tableBody: document.getElementById('tableBody'),
             noDataMessage: document.getElementById('noDataMessage'),
-            importBtn: document.getElementById('importBtn'),
-            editModal: document.getElementById('editModal'),
-            editFormContainer: document.getElementById('editFormContainer'),
+            
+            addBtn: document.getElementById('addBtn'),
+            importExcelBtn: document.getElementById('importExcelBtn'),
+            exportExcelBtn: document.getElementById('exportExcelBtn'),
+            excelFileInput: document.getElementById('excelFileInput'),
+            
+            formModal: document.getElementById('formModal'),
+            modalTitle: document.getElementById('modalTitle'),
+            formContainer: document.getElementById('formContainer'),
             closeModalBtn: document.getElementById('closeModalBtn'),
-            cancelEditBtn: document.getElementById('cancelEditBtn'),
-            saveEditBtn: document.getElementById('saveEditBtn'),
+            cancelFormBtn: document.getElementById('cancelFormBtn'),
+            saveFormBtn: document.getElementById('saveFormBtn'),
+            
             paginationInfo: document.getElementById('paginationInfo'),
             prevPageBtn: document.getElementById('prevPageBtn'),
             nextPageBtn: document.getElementById('nextPageBtn'),
             pageNumbers: document.getElementById('pageNumbers')
         };
 
-        // 初始化
         async function init() {
             try {
                 await fetchFromFirebase();
                 setupEventListeners();
-                UI.importBtn.classList.remove('hidden');
             } catch (error) {
                 console.error("初始化失敗:", error);
-                Swal.fire('連線失敗', '無法連接資料庫。請確認網路連線或 Firebase 設定。', 'error');
+                Swal.fire('連線失敗', '無法連接資料庫。', 'error');
             }
         }
 
-        // 讀取資料
         async function fetchFromFirebase() {
             UI.statusMessage.classList.remove('hidden');
             UI.tableContainer.classList.add('hidden');
+            UI.exportExcelBtn.disabled = true;
+            UI.addBtn.disabled = true;
 
             const querySnapshot = await getDocs(collection(db, COLLECTION_NAME));
             allData =[];
@@ -192,13 +214,10 @@
             querySnapshot.forEach((doc) => {
                 let data = doc.data();
                 data._id = doc.id;
-                
-                // 🌟 自動資料清洗：將資料庫中舊的 '_1' 欄位自動轉換成 '備註'
                 if (data['_1'] !== undefined) {
                     data['備註'] = data['_1'];
                     delete data['_1'];
                 }
-                
                 allData.push(data);
             });
 
@@ -208,45 +227,54 @@
                     Object.keys(item).forEach(k => { if(k !== '_id') headerSet.add(k); });
                 });
                 
-                // 🌟 智慧型欄位排序邏輯
                 headers = Array.from(headerSet).sort((a, b) => {
-                    // 定義欄位權重：越小排越前面，越大排越後面
-                    const getWeight = (key) => {
-                        if (key.includes('代碼') || key.includes('健保碼')) return -100; // 第一欄
-                        if (key.includes('中文')) return -50;
-                        if (key.includes('英文')) return -40;
-                        if (key === '備註') return 100; // 最後一欄 (操作的前面)
-                        return 0; // 其他放中間
+                    const getWeight = (k) => {
+                        if (k.includes('代碼') || k.includes('健保碼')) return -100;
+                        if (k.includes('中文')) return -50;
+                        if (k.includes('英文')) return -40;
+                        if (k === '備註') return 100;
+                        return 0;
                     };
-                    
-                    const weightA = getWeight(a);
-                    const weightB = getWeight(b);
-                    
-                    // 如果權重不同，依權重排序
-                    if (weightA !== weightB) return weightA - weightB;
-                    // 如果權重相同，依筆畫或字母排序
-                    return a.localeCompare(b);
+                    return getWeight(a) - getWeight(b) || a.localeCompare(b);
                 });
 
+                // 找尋系統主鍵(藥品代碼)的欄位名稱
+                idHeaderName = headers.find(h => h.includes('代碼') || h === '健保碼') || headers[0];
+
                 renderTableHead();
-                
-                currentFilteredData =[...allData]; 
+                currentFilteredData = [...allData]; 
                 currentPage = 1;
                 renderPage(); 
                 
                 UI.statusMessage.classList.add('hidden');
                 UI.tableContainer.classList.remove('hidden');
                 UI.searchInput.disabled = false;
+                UI.exportExcelBtn.disabled = false; 
+                UI.addBtn.disabled = false; // 啟用新增按鈕
                 UI.searchInput.focus();
             } else {
                 UI.statusMessage.innerHTML = `
                     <div class="text-center">
                         <i class="fa-solid fa-box-open text-5xl text-slate-300 mb-4"></i>
                         <p class="text-slate-600 font-bold text-xl mb-2">資料庫目前是空的</p>
-                        <p class="text-slate-500 mb-6">請點擊右上角按鈕匯入資料。</p>
+                        <p class="text-slate-500 mb-6">請點擊上方「匯入 Excel」按鈕建立初始資料。</p>
                     </div>
                 `;
             }
+        }
+
+        function escapeHTML(str) {
+            return String(str).replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag])
+            );
+        }
+
+        function highlightText(text, keyword) {
+            const safeText = escapeHTML(text || '');
+            if (!keyword) return safeText;
+            const escapedKeyword = keyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const regex = new RegExp(`(${escapedKeyword})`, 'gi');
+            return safeText.replace(regex, '<mark class="search-highlight">$1</mark>');
         }
 
         function renderTableHead() {
@@ -259,17 +287,16 @@
                 tr.appendChild(th);
             });
             const actionTh = document.createElement('th');
-            actionTh.className = 'px-4 py-3 font-semibold text-center sticky right-0 bg-slate-100 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] w-24';
+            // 欄位稍微加寬以容納兩個按鈕
+            actionTh.className = 'px-4 py-3 font-semibold text-center sticky right-0 bg-slate-100 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] w-40';
             actionTh.textContent = '操作';
             tr.appendChild(actionTh);
             UI.tableHead.appendChild(tr);
         }
 
-        // 分頁核心邏輯
         function renderPage() {
             const totalItems = currentFilteredData.length;
             const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-            
             if (currentPage < 1) currentPage = 1;
             if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
 
@@ -284,7 +311,6 @@
 
         function renderTableBody(data) {
             UI.tableBody.innerHTML = '';
-            
             if (data.length === 0) {
                 UI.noDataMessage.classList.remove('hidden');
                 return;
@@ -301,20 +327,29 @@
                     const td = document.createElement('td');
                     td.className = 'px-4 py-3 border-b border-slate-100 max-w-[200px] truncate';
                     if(index === 0) td.className += ' font-bold text-slate-900';
-                    td.textContent = row[header] || '';
-                    td.title = row[header] || '';
+                    td.innerHTML = highlightText(row[header], currentSearchKeyword);
+                    td.title = row[header] || ''; 
                     tr.appendChild(td);
                 });
 
+                // 操作按鈕欄位
                 const actionTd = document.createElement('td');
-                actionTd.className = 'px-4 py-3 border-b border-slate-100 text-center sticky right-0 bg-white shadow-[-2px_0_5px_rgba(0,0,0,0.05)]';
+                actionTd.className = 'px-4 py-3 border-b border-slate-100 text-center sticky right-0 bg-white shadow-[-2px_0_5px_rgba(0,0,0,0.05)] whitespace-nowrap';
                 
+                // 編輯按鈕
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md text-sm transition-colors font-medium';
                 editBtn.innerHTML = '<i class="fa-solid fa-pen"></i> 編輯';
-                editBtn.onclick = () => openEditModal(row);
+                editBtn.onclick = () => openFormModal(row); // 帶入資料代表編輯
+                
+                // 🌟 刪除按鈕
+                const delBtn = document.createElement('button');
+                delBtn.className = 'text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-md text-sm transition-colors font-medium ml-2';
+                delBtn.innerHTML = '<i class="fa-solid fa-trash"></i> 刪除';
+                delBtn.onclick = () => deleteData(row._id, row[idHeaderName]);
                 
                 actionTd.appendChild(editBtn);
+                actionTd.appendChild(delBtn);
                 tr.appendChild(actionTd);
                 fragment.appendChild(tr);
             });
@@ -329,7 +364,6 @@
                 UI.pageNumbers.innerHTML = '';
                 return;
             }
-
             UI.paginationInfo.innerHTML = `顯示第 <span class="font-bold text-slate-800">${startIndex + 1}</span> 到 <span class="font-bold text-slate-800">${endIndex}</span> 筆，共 <span class="font-bold text-slate-800">${totalItems}</span> 筆`;
             UI.prevPageBtn.disabled = currentPage === 1;
             UI.nextPageBtn.disabled = currentPage === totalPages;
@@ -337,44 +371,48 @@
             UI.pageNumbers.innerHTML = '';
             let startPage = Math.max(1, currentPage - 2);
             let endPage = Math.min(totalPages, startPage + 4);
-            
-            if (endPage - startPage < 4) {
-                startPage = Math.max(1, endPage - 4);
-            }
+            if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
 
             for (let i = startPage; i <= endPage; i++) {
                 const btn = document.createElement('button');
                 btn.className = `px-3 py-1 text-sm rounded transition-colors ${i === currentPage ? 'bg-blue-600 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`;
                 btn.textContent = i;
-                btn.onclick = () => {
-                    currentPage = i;
-                    renderPage();
-                };
+                btn.onclick = () => { currentPage = i; renderPage(); };
                 UI.pageNumbers.appendChild(btn);
             }
         }
 
         function handleSearch(e) {
-            const keyword = e.target.value.toLowerCase().trim();
+            currentSearchKeyword = e.target.value.trim();
+            const keywordLower = currentSearchKeyword.toLowerCase();
             
-            if (keyword === '') {
+            if (keywordLower === '') {
                 currentFilteredData =[...allData];
             } else {
                 currentFilteredData = allData.filter(row => {
                     return Object.entries(row).some(([key, value]) => {
                         if(key === '_id') return false; 
-                        return value && value.toString().toLowerCase().includes(keyword);
+                        return value && value.toString().toLowerCase().includes(keywordLower);
                     });
                 });
             }
-            
             currentPage = 1; 
             renderPage();
         }
 
-        function openEditModal(rowData) {
-            currentEditDocId = rowData._id;
-            UI.editFormContainer.innerHTML = '';
+        // ==========================================
+        // 🌟 新增/編輯 智慧共用表單邏輯
+        // ==========================================
+        function openFormModal(rowData = null) {
+            isEditMode = !!rowData; // 有資料代表編輯，沒資料代表新增
+            currentEditDocId = isEditMode ? rowData._id : null;
+            
+            // 設定標題
+            UI.modalTitle.innerHTML = isEditMode 
+                ? '<i class="fa-solid fa-pen-to-square text-blue-600 mr-2"></i>編輯藥品資料' 
+                : '<i class="fa-solid fa-plus text-emerald-600 mr-2"></i>新增藥品資料';
+
+            UI.formContainer.innerHTML = '';
 
             headers.forEach(header => {
                 const div = document.createElement('div');
@@ -382,7 +420,13 @@
                 
                 const label = document.createElement('label');
                 label.className = 'block text-sm font-medium text-slate-700 mb-1';
-                label.textContent = header;
+                
+                // 主鍵標記為必填
+                if(header === idHeaderName) {
+                    label.innerHTML = `${header} <span class="text-red-500">*</span>`;
+                } else {
+                    label.textContent = header;
+                }
                 
                 const isLongText = header.includes('備註') || header.includes('成分');
                 const input = document.createElement(isLongText ? 'textarea' : 'input');
@@ -390,61 +434,111 @@
                 if(isLongText) input.rows = 3;
                 else input.type = 'text';
                 
-                // 鎖定主要代碼防呆
-                if(header.includes('代碼') || header === '健保碼') {
-                    input.disabled = true;
-                    input.className += ' bg-slate-100 text-slate-500 cursor-not-allowed';
+                // 🌟 防呆進化：允許修改主鍵，但加上警告樣式與提示
+                if(header === idHeaderName) {
+                    input.placeholder = "請輸入唯一的藥品代碼 (必填)";
+                    if (isEditMode) {
+                        // 移除原先的 disabled，改為給予視覺警告
+                        input.className += ' border-amber-400 focus:ring-amber-500 focus:border-amber-500 bg-amber-50';
+                        input.title = "注意：修改代碼將會同步變更系統的唯一識別碼";
+                        
+                        // 在 label 旁邊加上警告文字
+                        label.innerHTML = `${header} <span class="text-red-500">*</span> <span class="text-xs text-amber-600 font-normal ml-2"><i class="fa-solid fa-triangle-exclamation"></i> 修改主鍵將重新建立資料</span>`;
+                    }
                 }
 
-                input.id = `edit_field_${header}`;
-                input.value = rowData[header] || '';
+                input.id = `form_field_${header}`;
+                input.value = rowData ? (rowData[header] || '') : '';
                 
                 div.appendChild(label);
                 div.appendChild(input);
-                UI.editFormContainer.appendChild(div);
+                UI.formContainer.appendChild(div);
             });
 
-            UI.editModal.classList.remove('hidden');
+            UI.formModal.classList.remove('hidden');
             document.body.classList.add('modal-open');
         }
 
-        function closeEditModal() {
-            UI.editModal.classList.add('hidden');
+        function closeFormModal() {
+            UI.formModal.classList.add('hidden');
             document.body.classList.remove('modal-open');
             currentEditDocId = null;
         }
 
-        async function saveEditData() {
-            if(!currentEditDocId) return;
+        // 🌟 儲存邏輯 (區分新增與編輯，並加入主鍵修改邏輯)
+        async function saveFormData() {
+            // 抓取並檢查主鍵(藥品代碼)是否有填寫
+            const idInput = document.getElementById(`form_field_${idHeaderName}`);
+            const newIdValue = idInput.value.trim();
             
-            const originalBtnHtml = UI.saveEditBtn.innerHTML;
-            UI.saveEditBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 儲存中...';
-            UI.saveEditBtn.disabled = true;
+            if (!newIdValue) {
+                Swal.fire('錯誤', `${idHeaderName} 不能為空白！`, 'warning');
+                idInput.focus();
+                return;
+            }
+
+            // 檢查代碼是否已存在 (適用於：新增模式，或編輯模式下修改了代碼)
+            if (!isEditMode || (isEditMode && newIdValue !== currentEditDocId)) {
+                const exists = allData.some(item => item._id === newIdValue);
+                if (exists) {
+                    Swal.fire('錯誤', `此 ${idHeaderName} 已經存在，請更換或使用搜尋功能尋找。`, 'error');
+                    idInput.focus();
+                    return;
+                }
+            }
+
+            const originalBtnHtml = UI.saveFormBtn.innerHTML;
+            UI.saveFormBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 儲存中...';
+            UI.saveFormBtn.disabled = true;
 
             try {
                 const updatedData = {};
                 headers.forEach(header => {
-                    updatedData[header] = document.getElementById(`edit_field_${header}`).value;
+                    updatedData[header] = document.getElementById(`form_field_${header}`).value.trim();
                 });
 
-                const docRef = doc(db, COLLECTION_NAME, currentEditDocId);
-                await updateDoc(docRef, updatedData);
+                // 寫入 Firebase
+                if (isEditMode && newIdValue !== currentEditDocId) {
+                    // 🌟 編輯模式且「修改了主鍵」：Firebase不支援改ID，所以要新增新文件，刪除舊文件
+                    const newDocRef = doc(db, COLLECTION_NAME, newIdValue);
+                    await setDoc(newDocRef, updatedData);
+                    
+                    const oldDocRef = doc(db, COLLECTION_NAME, currentEditDocId);
+                    await deleteDoc(oldDocRef);
+                } else {
+                    // 🌟 新增模式，或編輯模式但「未修改主鍵」
+                    const targetId = isEditMode ? currentEditDocId : newIdValue;
+                    const docRef = doc(db, COLLECTION_NAME, targetId);
+                    await setDoc(docRef, updatedData);
+                }
 
-                const dataIndex = allData.findIndex(item => item._id === currentEditDocId);
-                if(dataIndex > -1) allData[dataIndex] = { ...updatedData, _id: currentEditDocId };
+                // 更新前端記憶體資料
+                const finalData = { ...updatedData, _id: newIdValue }; // 確保使用最新的 _id
+                
+                if (isEditMode) {
+                    // 編輯：用舊的 ID 找出現有陣列位置並更新為新資料
+                    const dataIndex = allData.findIndex(item => item._id === currentEditDocId);
+                    if(dataIndex > -1) allData[dataIndex] = finalData;
 
-                const filteredIndex = currentFilteredData.findIndex(item => item._id === currentEditDocId);
-                if(filteredIndex > -1) currentFilteredData[filteredIndex] = { ...updatedData, _id: currentEditDocId };
+                    const filteredIndex = currentFilteredData.findIndex(item => item._id === currentEditDocId);
+                    if(filteredIndex > -1) currentFilteredData[filteredIndex] = finalData;
+                } else {
+                    // 新增：推入陣列最前方
+                    allData.unshift(finalData);
+                    // 如果目前搜尋條件也符合，也要推入顯示陣列
+                    if(currentSearchKeyword === '' || Object.values(finalData).some(v => String(v).includes(currentSearchKeyword))) {
+                        currentFilteredData.unshift(finalData);
+                    }
+                }
 
-                closeEditModal();
+                closeFormModal();
                 renderPage(); 
                 
-                // 🌟 SweetAlert2 Toast (取代原來的 alert 或自訂 DOM)
                 Swal.fire({
                     toast: true,
                     position: 'bottom-end',
                     icon: 'success',
-                    title: '資料已成功更新',
+                    title: isEditMode ? '資料已成功更新' : '成功新增一筆資料',
                     showConfirmButton: false,
                     timer: 2000,
                     timerProgressBar: true
@@ -452,109 +546,162 @@
 
             } catch (error) {
                 console.error("儲存失敗:", error);
-                Swal.fire('錯誤', '儲存失敗。請確認您的權限設定。', 'error');
+                Swal.fire('錯誤', '儲存失敗。請確認您的網路連線或權限設定。', 'error');
             } finally {
-                UI.saveEditBtn.innerHTML = originalBtnHtml;
-                UI.saveEditBtn.disabled = false;
+                UI.saveFormBtn.innerHTML = originalBtnHtml;
+                UI.saveFormBtn.disabled = false;
             }
         }
 
-        // 🌟 升級的 SweetAlert2 雙重防呆匯入機制
-        async function importFromGoogleSheets() {
-            // 第一道防護
-            const result1 = await Swal.fire({
-                title: '⚠️ 嚴重警告',
-                text: '系統即將從 Google Sheets 抓取大量資料覆寫至 Firebase。這通常只在「第一次初始化系統」時使用。您確定要繼續嗎？',
+        // ==========================================
+        // 🌟 刪除資料邏輯 (雙重確認)
+        // ==========================================
+        async function deleteData(docId, codeName) {
+            // 第一步：SweetAlert2 雙重確認
+            const result = await Swal.fire({
+                title: '確定要刪除嗎？',
+                html: `即將刪除代碼為 <b class="text-red-500">${codeName}</b> 的藥品。<br>此操作無法復原！`,
                 icon: 'warning',
                 showCancelButton: true,
-                confirmButtonColor: '#f97316',
+                confirmButtonColor: '#ef4444', // Tailwind red-500
                 cancelButtonColor: '#64748b',
-                confirmButtonText: '是的，我要繼續',
+                confirmButtonText: '是的，確定刪除',
                 cancelButtonText: '取消'
             });
 
-            if (!result1.isConfirmed) return;
+            if (!result.isConfirmed) return;
 
-            // 第二道防護：文字驗證
-            const result2 = await Swal.fire({
-                title: '🔒 安全解鎖',
-                text: '為防止意外覆蓋資料，請在下方輸入「確認匯入」四個字來解鎖：',
-                input: 'text',
-                inputPlaceholder: '請輸入：確認匯入',
-                showCancelButton: true,
-                confirmButtonColor: '#d33',
-                cancelButtonText: '取消',
-                confirmButtonText: '強制匯入',
-                preConfirm: (inputValue) => {
-                    if (inputValue !== '確認匯入') {
-                        Swal.showValidationMessage('輸入錯誤，請輸入「確認匯入」');
-                        return false;
-                    }
-                    return true;
-                }
+            // 顯示載入動畫
+            Swal.fire({
+                title: '刪除中...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
             });
 
-            if (!result2.isConfirmed) return;
+            try {
+                // 從 Firebase 刪除
+                await deleteDoc(doc(db, COLLECTION_NAME, docId));
 
-            // 開始匯入
-            UI.importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 處理中...';
-            UI.importBtn.disabled = true;
+                // 從本地陣列移除
+                allData = allData.filter(item => item._id !== docId);
+                currentFilteredData = currentFilteredData.filter(item => item._id !== docId);
 
-            const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSATPBmRfIX85c1RXK9QeRDyCeGZ6H2TySfVghh1EdWymMH-0VS_G2UWR4ctSXBPg/pub?gid=2049637445&single=true&output=csv';
+                // 重新渲染表格
+                renderPage();
 
-            Papa.parse(CSV_URL, {
-                download: true,
-                header: true,
-                skipEmptyLines: true,
-                complete: async function(results) {
-                    try {
-                        let count = 0;
-                        for (const row of results.data) {
-                            const isEmpty = Object.values(row).every(val => !val || val.trim() === '');
-                            if (isEmpty) continue;
+                // 成功提示
+                Swal.fire({
+                    toast: true,
+                    position: 'bottom-end',
+                    icon: 'success',
+                    title: '已成功刪除資料',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
 
-                            const cleanRow = {};
-                            for (const key in row) {
-                                if (key && key.trim() !== '') {
-                                    // 🌟 自動修正：匯入時若遇到 _1 欄位，直接存為 '備註'
-                                    let finalKey = key;
-                                    if (key === '_1') finalKey = '備註';
-                                    cleanRow[finalKey] = row[key];
-                                }
-                            }
-                            
-                            // 支援舊的「健保碼」或目前的「藥品代碼」當作 ID
-                            const idValue = cleanRow['藥品代碼'] || cleanRow['健保碼'];
-                            const docId = idValue ? idValue.trim() : `auto_${Date.now()}_${count}`;
-                            
-                            await setDoc(doc(db, COLLECTION_NAME, docId), cleanRow);
-                            count++;
-                            
-                            if (count % 10 === 0) {
-                                UI.importBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 已寫入 ${count} 筆...`;
+            } catch (error) {
+                console.error("刪除失敗:", error);
+                Swal.fire('刪除失敗', '網路錯誤或權限不足，請稍後再試。', 'error');
+            }
+        }
+
+        // ==========================================
+        // Excel 匯出 / 匯入
+        // ==========================================
+        function exportToExcel() {
+            if (currentFilteredData.length === 0) {
+                Swal.fire('提示', '目前畫面上沒有資料可以匯出', 'info');
+                return;
+            }
+            const exportData = currentFilteredData.map(row => {
+                const cleanRow = { ...row };
+                delete cleanRow._id;
+                return cleanRow;
+            });
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "藥品資料庫");
+            const dateStr = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `藥品資料庫_${dateStr}.xlsx`);
+        }
+
+        async function handleExcelImport(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    const data = evt.target.result;
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+
+                    if (jsonData.length === 0) {
+                        Swal.fire('錯誤', '匯入的 Excel 沒有資料。', 'error');
+                        return;
+                    }
+
+                    const confirmResult = await Swal.fire({
+                        title: '確認匯入',
+                        text: `共 ${jsonData.length} 筆資料。同代碼將自動覆蓋，新代碼將自動新增。`,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: '開始寫入',
+                        cancelButtonText: '取消'
+                    });
+
+                    if (!confirmResult.isConfirmed) {
+                        UI.excelFileInput.value = ''; 
+                        return;
+                    }
+
+                    Swal.fire({
+                        title: '資料上傳中...',
+                        html: '請勿關閉視窗，已完成 <b>0</b> 筆',
+                        allowOutsideClick: false,
+                        didOpen: () => { Swal.showLoading(); }
+                    });
+
+                    let successCount = 0;
+                    const popupContent = Swal.getHtmlContainer().querySelector('b');
+
+                    for (const row of jsonData) {
+                        const isEmpty = Object.values(row).every(val => !val || String(val).trim() === '');
+                        if (isEmpty) continue;
+
+                        const cleanRow = {};
+                        for (const key in row) {
+                            if (key && key.trim() !== '') {
+                                let finalKey = key === '_1' ? '備註' : key;
+                                cleanRow[finalKey] = String(row[key]); 
                             }
                         }
                         
-                        Swal.fire({
-                            title: '成功！',
-                            text: `🎉 成功匯入 ${count} 筆資料！\n畫面即將重新整理。`,
-                            icon: 'success',
-                            confirmButtonText: '確定'
-                        }).then(() => {
-                            window.location.reload();
-                        });
-
-                    } catch (error) {
-                        console.error("匯入失敗:", error);
-                        Swal.fire('匯入失敗', '請打開開發者工具 (F12) 查看錯誤。', 'error');
-                        UI.importBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料';
-                        UI.importBtn.disabled = false;
+                        const idValue = cleanRow[idHeaderName] || cleanRow['健保碼'];
+                        const docId = idValue ? idValue.trim() : `auto_${Date.now()}_${successCount}`;
+                        
+                        await setDoc(doc(db, COLLECTION_NAME, docId), cleanRow);
+                        successCount++;
+                        
+                        if (successCount % 10 === 0 && popupContent) popupContent.textContent = successCount;
                     }
+                    
+                    Swal.fire({
+                        title: '上傳完成！',
+                        text: `🎉 成功處理了 ${successCount} 筆資料！`,
+                        icon: 'success',
+                        confirmButtonText: '重新載入'
+                    }).then(() => window.location.reload());
+
+                } catch (err) {
+                    console.error("解析錯誤:", err);
+                    Swal.fire('解析失敗', '請確認這是一個有效的 Excel 檔案。', 'error');
                 }
-            });
+                UI.excelFileInput.value = '';
+            };
+            reader.readAsArrayBuffer(file);
         }
 
-        // 防抖函數
         function debounce(func, wait) {
             let timeout;
             return function(...args) {
@@ -563,30 +710,31 @@
             };
         }
 
-        // 綁定事件
+        // 事件監聽
         function setupEventListeners() {
             UI.searchInput.addEventListener('input', debounce(handleSearch, 300));
-            UI.closeModalBtn.addEventListener('click', closeEditModal);
-            UI.cancelEditBtn.addEventListener('click', closeEditModal);
-            UI.saveEditBtn.addEventListener('click', saveEditData);
-            UI.importBtn.addEventListener('click', importFromGoogleSheets);
+            
+            // 🌟 綁定新增按鈕 (帶入 null 代表新增)
+            UI.addBtn.addEventListener('click', () => openFormModal(null));
+            
+            UI.exportExcelBtn.addEventListener('click', exportToExcel);
+            UI.importExcelBtn.addEventListener('click', () => UI.excelFileInput.click()); 
+            UI.excelFileInput.addEventListener('change', handleExcelImport);
+
+            UI.closeModalBtn.addEventListener('click', closeFormModal);
+            UI.cancelFormBtn.addEventListener('click', closeFormModal);
+            UI.saveFormBtn.addEventListener('click', saveFormData);
             
             UI.prevPageBtn.addEventListener('click', () => {
-                if(currentPage > 1) {
-                    currentPage--;
-                    renderPage();
-                }
+                if(currentPage > 1) { currentPage--; renderPage(); }
             });
             UI.nextPageBtn.addEventListener('click', () => {
                 const maxPage = Math.ceil(currentFilteredData.length / ITEMS_PER_PAGE);
-                if(currentPage < maxPage) {
-                    currentPage++;
-                    renderPage();
-                }
+                if(currentPage < maxPage) { currentPage++; renderPage(); }
             });
 
-            UI.editModal.addEventListener('click', (e) => {
-                if (e.target === UI.editModal) closeEditModal();
+            UI.formModal.addEventListener('click', (e) => {
+                if (e.target === UI.formModal) closeFormModal();
             });
         }
 
