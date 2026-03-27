@@ -6,7 +6,7 @@
     <title>健保藥品查詢與管理系統</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 PapaParse (用於從 Google Sheets 匯入資料) -->
+    <!-- 引入 PapaParse -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <!-- 引入 FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -17,35 +17,34 @@
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        /* 避免彈出視窗背後還能滾動 */
         body.modal-open { overflow: hidden; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen font-sans">
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans flex flex-col">
 
-    <div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="max-w-7xl mx-auto px-4 py-8 flex-grow w-full">
         
         <!-- Header 區塊 -->
         <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
                 <h1 class="text-3xl font-bold text-blue-700 flex items-center justify-center md:justify-start gap-3">
-                    <i class="fa-solid fa-database"></i> 藥品管理系統 tese(Firebase版)
+                    <i class="fa-solid fa-database"></i> 藥品管理系統
                 </h1>
-                <p class="text-slate-500 mt-2 text-sm">支援全欄位搜尋與即時線上修改</p>
+                <p class="text-slate-500 mt-2 text-sm">支援全欄位搜尋、資料分頁與即時線上修改</p>
             </div>
             
-            <div class="flex gap-2 w-full md:w-auto">
+            <div class="flex gap-2 w-full md:w-auto flex-col md:flex-row">
                 <!-- 搜尋框 -->
                 <div class="relative flex-grow md:w-80">
                     <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                         <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
                     </div>
                     <input type="text" id="searchInput" 
-                        class="bg-white border border-slate-300 text-slate-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 shadow-sm" 
+                        class="bg-white border border-slate-300 text-slate-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 shadow-sm transition-all" 
                         placeholder="搜尋藥品..." disabled>
                 </div>
-                <!-- 開發者工具：從 Sheets 匯入資料 -->
-                <button id="importBtn" class="bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm hidden" title="從Google Sheets匯入資料到Firebase">
+                <!-- 匯入按鈕 -->
+                <button id="importBtn" class="bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm hidden flex items-center justify-center gap-2" title="從Google Sheets匯入資料">
                     <i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料
                 </button>
             </div>
@@ -54,12 +53,13 @@
         <!-- 狀態顯示區塊 -->
         <div id="statusMessage" class="flex flex-col items-center justify-center py-12">
             <i class="fa-solid fa-spinner fa-spin text-4xl text-blue-500 mb-4"></i>
-            <p id="statusText" class="text-slate-600 font-medium text-lg">正在連接資料庫...</p>
+            <p id="statusText" class="text-slate-600 font-medium text-lg">正在從資料庫載入資料...</p>
         </div>
 
-        <!-- 表格區塊 -->
-        <div id="tableContainer" class="bg-white rounded-xl shadow-md overflow-hidden hidden border border-slate-200">
-            <div class="overflow-x-auto max-h-[70vh]">
+        <!-- 表格與分頁區塊 -->
+        <div id="tableContainer" class="bg-white rounded-xl shadow-md overflow-hidden hidden border border-slate-200 flex flex-col">
+            <!-- 表格本體 -->
+            <div class="overflow-x-auto" style="min-height: 50vh; max-height: 65vh;">
                 <table class="w-full text-sm text-left text-slate-600">
                     <thead id="tableHead" class="text-xs text-slate-700 uppercase bg-slate-100 shadow-sm">
                         <!-- 表頭 -->
@@ -68,6 +68,29 @@
                         <!-- 資料 -->
                     </tbody>
                 </table>
+                <!-- 無搜尋結果提示 -->
+                <div id="noDataMessage" class="hidden py-16 text-center text-slate-500">
+                    <i class="fa-regular fa-folder-open text-5xl mb-4 text-slate-300"></i>
+                    <p class="text-lg">找不到符合條件的藥品</p>
+                </div>
+            </div>
+
+            <!-- 分頁控制項 (Pagination) -->
+            <div class="bg-slate-50 px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="text-sm text-slate-600 text-center sm:text-left w-full sm:w-auto" id="paginationInfo">
+                    <!-- 顯示第 1 到 50 筆，共 1000 筆 -->
+                </div>
+                <div class="flex space-x-2">
+                    <button id="prevPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1">
+                        <i class="fa-solid fa-chevron-left"></i> 上一頁
+                    </button>
+                    <div id="pageNumbers" class="hidden sm:flex items-center space-x-1">
+                        <!-- 頁碼按鈕會動態產生在這裡 -->
+                    </div>
+                    <button id="nextPageBtn" class="px-3 py-1.5 border border-slate-300 text-slate-600 bg-white hover:bg-slate-100 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1">
+                        下一頁 <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -86,42 +109,41 @@
                 <!-- 表單欄位將由 JS 動態生成 -->
             </div>
             <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-                <button id="cancelEditBtn" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200">取消</button>
-                <button id="saveEditBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2">
+                <button id="cancelEditBtn" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">取消</button>
+                <button id="saveEditBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
                     <i class="fa-solid fa-floppy-disk"></i> 儲存修改
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Firebase SDK (已升級至 12.11.0 版本) -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
-        // 加入 Firestore 資料庫模組
         import { getFirestore, collection, getDocs, doc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-        // 您專屬的 Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyBEkSyqTnL2-O_W2VVu11lyhYbNOOq1EjI",
             authDomain: "onepharmacylocation.firebaseapp.com",
             projectId: "onepharmacylocation",
             storageBucket: "onepharmacylocation.firebasestorage.app",
             messagingSenderId: "767725009320",
-            appId: "1:767725009320:web:68bc5bb1fef13602bd459d",
-            measurementId: "G-9QZTBHLC3L"
+            appId: "1:767725009320:web:68bc5bb1fef13602bd459d"
         };
 
-        // 初始化 Firebase 應用、分析與資料庫
         const app = initializeApp(firebaseConfig);
-        const analytics = getAnalytics(app);
         const db = getFirestore(app);
-        const COLLECTION_NAME = "medicines"; // 資料表名稱
+        const COLLECTION_NAME = "medicines";
 
-        // 全域變數
+        // 全域資料與分頁狀態
         let allData =[];
+        let currentFilteredData = []; // 儲存搜尋後的結果，用於分頁
         let headers =[];
         let currentEditDocId = null;
+        
+        // 分頁設定
+        let currentPage = 1;
+        const ITEMS_PER_PAGE = 50; // 每頁顯示 50 筆
 
         // DOM 元素
         const UI = {
@@ -131,51 +153,52 @@
             tableContainer: document.getElementById('tableContainer'),
             tableHead: document.getElementById('tableHead'),
             tableBody: document.getElementById('tableBody'),
+            noDataMessage: document.getElementById('noDataMessage'),
             importBtn: document.getElementById('importBtn'),
             editModal: document.getElementById('editModal'),
             editFormContainer: document.getElementById('editFormContainer'),
             closeModalBtn: document.getElementById('closeModalBtn'),
             cancelEditBtn: document.getElementById('cancelEditBtn'),
-            saveEditBtn: document.getElementById('saveEditBtn')
+            saveEditBtn: document.getElementById('saveEditBtn'),
+            // 分頁元素
+            paginationInfo: document.getElementById('paginationInfo'),
+            prevPageBtn: document.getElementById('prevPageBtn'),
+            nextPageBtn: document.getElementById('nextPageBtn'),
+            pageNumbers: document.getElementById('pageNumbers')
         };
 
-        // 啟動系統
+        // 初始化
         async function init() {
             try {
                 await fetchFromFirebase();
                 setupEventListeners();
-                UI.importBtn.classList.remove('hidden'); // 顯示匯入按鈕
+                UI.importBtn.classList.remove('hidden');
             } catch (error) {
                 console.error("初始化失敗:", error);
-                showError("無法連接 Firebase。請確認您的 Firestore 資料庫是否已經在後台建立，並且安全規則 (Rules) 設為允許讀寫。");
+                showError("無法連接資料庫。請確認網路連線或 Firebase 設定。");
             }
         }
 
-        // 從 Firebase 讀取資料
+        // 讀取資料
         async function fetchFromFirebase() {
             UI.statusMessage.classList.remove('hidden');
             UI.tableContainer.classList.add('hidden');
-            UI.statusText.textContent = "正在從資料庫載入資料...";
 
             const querySnapshot = await getDocs(collection(db, COLLECTION_NAME));
             allData =[];
             
             querySnapshot.forEach((doc) => {
                 let data = doc.data();
-                data._id = doc.id; // 保存文件 ID 以供修改
+                data._id = doc.id;
                 allData.push(data);
             });
 
             if (allData.length > 0) {
-                // 自動收集表頭
                 let headerSet = new Set();
                 allData.forEach(item => {
-                    Object.keys(item).forEach(k => {
-                        if(k !== '_id') headerSet.add(k);
-                    });
+                    Object.keys(item).forEach(k => { if(k !== '_id') headerSet.add(k); });
                 });
                 
-                // 排序表頭，讓健保碼與藥品名稱排前面
                 headers = Array.from(headerSet).sort((a, b) => {
                     if(a === '健保碼') return -1;
                     if(b === '健保碼') return 1;
@@ -185,7 +208,11 @@
                 });
 
                 renderTableHead();
-                renderTableBody(allData);
+                
+                // 初始化分頁資料
+                currentFilteredData =[...allData]; 
+                currentPage = 1;
+                renderPage(); // 呼叫分頁渲染函數
                 
                 UI.statusMessage.classList.add('hidden');
                 UI.tableContainer.classList.remove('hidden');
@@ -195,17 +222,13 @@
                 UI.statusMessage.innerHTML = `
                     <div class="text-center">
                         <i class="fa-solid fa-box-open text-5xl text-slate-300 mb-4"></i>
-                        <p class="text-slate-600 font-bold text-xl mb-2">您的資料庫目前是空的</p>
-                        <p class="text-slate-500 mb-6">請點擊右上角的橘色按鈕，將 Google Sheets 的資料匯入系統。</p>
-                        <div class="animate-bounce text-orange-500 text-2xl">
-                            <i class="fa-solid fa-arrow-up"></i>
-                        </div>
+                        <p class="text-slate-600 font-bold text-xl mb-2">資料庫目前是空的</p>
+                        <p class="text-slate-500 mb-6">請點擊右上角按鈕匯入資料。</p>
                     </div>
                 `;
             }
         }
 
-        // 渲染表頭
         function renderTableHead() {
             UI.tableHead.innerHTML = '';
             const tr = document.createElement('tr');
@@ -215,19 +238,49 @@
                 th.textContent = headerText;
                 tr.appendChild(th);
             });
-            // 增加「操作」欄位
             const actionTh = document.createElement('th');
-            actionTh.className = 'px-4 py-3 font-semibold text-center sticky right-0 bg-slate-100 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]';
+            actionTh.className = 'px-4 py-3 font-semibold text-center sticky right-0 bg-slate-100 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] w-24';
             actionTh.textContent = '操作';
             tr.appendChild(actionTh);
             UI.tableHead.appendChild(tr);
         }
 
-        // 渲染表格內容
+        // ==========================================
+        // 🌟 新增：分頁核心邏輯
+        // ==========================================
+        function renderPage() {
+            const totalItems = currentFilteredData.length;
+            const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+            
+            // 安全防護：確保當前頁碼在合理範圍
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+
+            // 計算切片的起訖點
+            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+            const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+            
+            // 擷取當前頁面該顯示的資料
+            const pageData = currentFilteredData.slice(startIndex, endIndex);
+
+            // 渲染表格內容
+            renderTableBody(pageData);
+
+            // 更新分頁控制列介面
+            updatePaginationUI(totalItems, totalPages, startIndex, endIndex);
+        }
+
         function renderTableBody(data) {
             UI.tableBody.innerHTML = '';
-            const fragment = document.createDocumentFragment();
             
+            if (data.length === 0) {
+                UI.noDataMessage.classList.remove('hidden');
+                return;
+            } else {
+                UI.noDataMessage.classList.add('hidden');
+            }
+
+            const fragment = document.createDocumentFragment();
             data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.className = 'bg-white hover:bg-blue-50 transition-colors duration-150';
@@ -241,7 +294,6 @@
                     tr.appendChild(td);
                 });
 
-                // 操作按鈕
                 const actionTd = document.createElement('td');
                 actionTd.className = 'px-4 py-3 border-b border-slate-100 text-center sticky right-0 bg-white shadow-[-2px_0_5px_rgba(0,0,0,0.05)]';
                 
@@ -257,23 +309,66 @@
             UI.tableBody.appendChild(fragment);
         }
 
-        // 搜尋邏輯
-        function handleSearch(e) {
-            const keyword = e.target.value.toLowerCase().trim();
-            if (keyword === '') {
-                renderTableBody(allData);
+        function updatePaginationUI(totalItems, totalPages, startIndex, endIndex) {
+            if (totalItems === 0) {
+                UI.paginationInfo.textContent = '沒有符合的資料';
+                UI.prevPageBtn.disabled = true;
+                UI.nextPageBtn.disabled = true;
+                UI.pageNumbers.innerHTML = '';
                 return;
             }
-            const filteredData = allData.filter(row => {
-                return Object.entries(row).some(([key, value]) => {
-                    if(key === '_id') return false; 
-                    return value && value.toString().toLowerCase().includes(keyword);
-                });
-            });
-            renderTableBody(filteredData);
+
+            // 更新文字資訊
+            UI.paginationInfo.innerHTML = `顯示第 <span class="font-bold text-slate-800">${startIndex + 1}</span> 到 <span class="font-bold text-slate-800">${endIndex}</span> 筆，共 <span class="font-bold text-slate-800">${totalItems}</span> 筆`;
+
+            // 更新按鈕狀態
+            UI.prevPageBtn.disabled = currentPage === 1;
+            UI.nextPageBtn.disabled = currentPage === totalPages;
+
+            // 動態產生頁碼按鈕 (只顯示前後幾頁，避免按鈕過多)
+            UI.pageNumbers.innerHTML = '';
+            let startPage = Math.max(1, currentPage - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+            
+            // 修正結尾頁碼不足時的補齊邏輯
+            if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const btn = document.createElement('button');
+                btn.className = `px-3 py-1 text-sm rounded transition-colors ${i === currentPage ? 'bg-blue-600 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`;
+                btn.textContent = i;
+                btn.onclick = () => {
+                    currentPage = i;
+                    renderPage();
+                };
+                UI.pageNumbers.appendChild(btn);
+            }
         }
 
-        // 開啟編輯視窗
+        // ==========================================
+        // 搜尋邏輯 (整合分頁)
+        // ==========================================
+        function handleSearch(e) {
+            const keyword = e.target.value.toLowerCase().trim();
+            
+            if (keyword === '') {
+                currentFilteredData = [...allData];
+            } else {
+                currentFilteredData = allData.filter(row => {
+                    return Object.entries(row).some(([key, value]) => {
+                        if(key === '_id') return false; 
+                        return value && value.toString().toLowerCase().includes(keyword);
+                    });
+                });
+            }
+            
+            currentPage = 1; // 搜尋時永遠回到第一頁
+            renderPage();
+        }
+
+        // 編輯視窗邏輯
         function openEditModal(rowData) {
             currentEditDocId = rowData._id;
             UI.editFormContainer.innerHTML = '';
@@ -292,7 +387,6 @@
                 if(isLongText) input.rows = 3;
                 else input.type = 'text';
                 
-                // 健保碼作為 ID，不可更改
                 if(header === '健保碼') {
                     input.disabled = true;
                     input.className += ' bg-slate-100 text-slate-500 cursor-not-allowed';
@@ -310,14 +404,12 @@
             document.body.classList.add('modal-open');
         }
 
-        // 關閉編輯視窗
         function closeEditModal() {
             UI.editModal.classList.add('hidden');
             document.body.classList.remove('modal-open');
             currentEditDocId = null;
         }
 
-        // 儲存修改資料
         async function saveEditData() {
             if(!currentEditDocId) return;
             
@@ -331,39 +423,56 @@
                     updatedData[header] = document.getElementById(`edit_field_${header}`).value;
                 });
 
-                // 寫入 Firestore
                 const docRef = doc(db, COLLECTION_NAME, currentEditDocId);
                 await updateDoc(docRef, updatedData);
 
-                // 更新前端記憶體資料
+                // 同步更新本地端 allData 與 currentFilteredData
                 const dataIndex = allData.findIndex(item => item._id === currentEditDocId);
-                if(dataIndex > -1) {
-                    allData[dataIndex] = { ...updatedData, _id: currentEditDocId };
-                }
+                if(dataIndex > -1) allData[dataIndex] = { ...updatedData, _id: currentEditDocId };
+
+                const filteredIndex = currentFilteredData.findIndex(item => item._id === currentEditDocId);
+                if(filteredIndex > -1) currentFilteredData[filteredIndex] = { ...updatedData, _id: currentEditDocId };
 
                 closeEditModal();
-                handleSearch({ target: { value: UI.searchInput.value } });
                 
-                alert('✅ 資料儲存成功！');
+                // 重新渲染當前頁面 (不會跳回第一頁！)
+                renderPage(); 
+                
+                // 顯示一個輕量化的小提示 (不阻斷畫面)
+                const toast = document.createElement('div');
+                toast.className = 'fixed bottom-4 right-4 bg-slate-800 text-white px-4 py-2 rounded shadow-lg z-50 animate-bounce';
+                toast.innerHTML = '<i class="fa-solid fa-check text-green-400 mr-2"></i>資料已更新';
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 2500);
 
             } catch (error) {
                 console.error("儲存失敗:", error);
-                alert('❌ 儲存失敗。請確認您的 Firestore 安全規則是否有開放寫入權限。');
+                alert('❌ 儲存失敗。請確認您的權限設定。');
             } finally {
                 UI.saveEditBtn.innerHTML = originalBtnHtml;
                 UI.saveEditBtn.disabled = false;
             }
         }
 
-        // 🚀 升級版：從 Google Sheets 匯入資料 (具備自動清洗髒資料功能)
+        // ==========================================
+        // 🌟 新增：雙重防呆匯入機制
+        // ==========================================
         function importFromGoogleSheets() {
-            const confirmImport = confirm("系統即將從 Google Sheets 抓取資料並建立至 Firebase。\n這個動作大約需要幾秒鐘，請按確定繼續。");
-            if(!confirmImport) return;
+            // 第一道防護：常規警告
+            const firstConfirm = confirm("⚠️ 警告：系統即將從 Google Sheets 抓取大量資料覆寫至 Firebase。\n\n※ 這通常只在「第一次初始化系統」時使用。\n您確定要繼續嗎？");
+            if(!firstConfirm) return;
 
+            // 第二道防護：文字驗證 (業界最高標準防呆)
+            const secondConfirm = prompt("🔒 安全確認：\n為了防止意外覆蓋資料，請在下方輸入「確認匯入」四個字來解鎖執行：");
+            if(secondConfirm !== "確認匯入") {
+                alert("已取消匯入。輸入錯誤或使用者主動取消。");
+                return;
+            }
+
+            // 通過雙重防護，開始執行
             UI.importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 處理中...';
             UI.importBtn.disabled = true;
 
-            // 原本的 Google Sheets CSV 網址
             const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSATPBmRfIX85c1RXK9QeRDyCeGZ6H2TySfVghh1EdWymMH-0VS_G2UWR4ctSXBPg/pub?gid=2049637445&single=true&output=csv';
 
             Papa.parse(CSV_URL, {
@@ -374,36 +483,29 @@
                     try {
                         let count = 0;
                         for (const row of results.data) {
-                            // 1. 略過完全空白的列
                             const isEmpty = Object.values(row).every(val => !val || val.trim() === '');
                             if (isEmpty) continue;
 
-                            // 🌟 2. 資料清洗 (Sanitization)：剔除標題是空白的欄位 🌟
                             const cleanRow = {};
                             for (const key in row) {
-                                // 只有當 key (欄位名稱) 存在，且不是全空白時，才把它保留下來
                                 if (key && key.trim() !== '') {
                                     cleanRow[key] = row[key];
                                 }
                             }
 
-                            // 3. 產生文件 ID，若無健保碼則自動產生
                             const docId = cleanRow['健保碼'] ? cleanRow['健保碼'].trim() : `auto_${Date.now()}_${count}`;
-                            
-                            // 4. 寫入 Firebase (送入的是清洗過後乾淨的 cleanRow)
                             await setDoc(doc(db, COLLECTION_NAME, docId), cleanRow);
                             count++;
                             
-                            // 每 10 筆更新一下按鈕文字
                             if (count % 10 === 0) {
                                 UI.importBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 已寫入 ${count} 筆...`;
                             }
                         }
-                        alert(`🎉 成功建立 ${count} 筆資料！\n畫面即將重新整理。`);
+                        alert(`🎉 成功匯入 ${count} 筆資料！\n畫面即將重新整理。`);
                         window.location.reload();
                     } catch (error) {
                         console.error("匯入失敗:", error);
-                        alert("匯入失敗！請打開 F12 Console 查看錯誤訊息。");
+                        alert("匯入失敗！請打開 F12 查看錯誤。");
                         UI.importBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料';
                         UI.importBtn.disabled = false;
                     }
@@ -428,26 +530,30 @@
             UI.saveEditBtn.addEventListener('click', saveEditData);
             UI.importBtn.addEventListener('click', importFromGoogleSheets);
             
-            // 點擊 Modal 背後暗處可關閉
+            // 分頁按鈕事件
+            UI.prevPageBtn.addEventListener('click', () => {
+                if(currentPage > 1) {
+                    currentPage--;
+                    renderPage();
+                }
+            });
+            UI.nextPageBtn.addEventListener('click', () => {
+                const maxPage = Math.ceil(currentFilteredData.length / ITEMS_PER_PAGE);
+                if(currentPage < maxPage) {
+                    currentPage++;
+                    renderPage();
+                }
+            });
+
             UI.editModal.addEventListener('click', (e) => {
                 if (e.target === UI.editModal) closeEditModal();
             });
         }
 
-        // 錯誤處理 UI
         function showError(msg) {
-            UI.statusMessage.innerHTML = `
-                <div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-6 rounded shadow-sm max-w-lg text-left">
-                    <div class="flex items-center mb-3">
-                        <i class="fa-solid fa-triangle-exclamation text-2xl mr-2"></i>
-                        <h3 class="font-bold text-lg">系統錯誤</h3>
-                    </div>
-                    <p class="text-sm leading-relaxed">${msg}</p>
-                </div>
-            `;
+            UI.statusMessage.innerHTML = `<div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-6 rounded shadow-sm max-w-lg text-left"><p class="font-bold">系統錯誤</p><p class="text-sm mt-2">${msg}</p></div>`;
         }
 
-        // 啟動程式
         window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
