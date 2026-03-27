@@ -1,0 +1,235 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>健保藥品查詢系統</title>
+    <!-- 引入 Tailwind CSS (負責美觀與 RWD) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 PapaParse (負責精準解析 CSV) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- 引入 FontAwesome (圖示) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* 讓表格標題固定在頂部，方便往下捲動時對照 */
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        /* 捲動條美化 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans">
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        
+        <!-- Header 區塊 -->
+        <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-blue-700 flex items-center justify-center md:justify-start gap-3">
+                    <i class="fa-solid fa-pills"></i> 健保藥品查詢系統
+                </h1>
+                <p class="text-slate-500 mt-2 text-sm">支援健保碼、藥品名稱等全欄位關鍵字模糊搜尋</p>
+            </div>
+            
+            <!-- 搜尋框區塊 -->
+            <div class="relative w-full md:w-96">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                    <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+                </div>
+                <input type="text" id="searchInput" 
+                    class="bg-white border border-slate-300 text-slate-900 text-base rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-3 shadow-sm transition-all" 
+                    placeholder="輸入健保碼或藥品名稱..." disabled>
+            </div>
+        </header>
+
+        <!-- 狀態顯示區塊 (Loading / Error) -->
+        <div id="statusMessage" class="flex flex-col items-center justify-center py-12">
+            <i class="fa-solid fa-spinner fa-spin text-4xl text-blue-500 mb-4"></i>
+            <p class="text-slate-600 font-medium text-lg">正在從資料庫載入藥品資料...</p>
+        </div>
+
+        <!-- 表格區塊 -->
+        <div id="tableContainer" class="bg-white rounded-xl shadow-md overflow-hidden hidden border border-slate-200">
+            <div class="overflow-x-auto max-h-[70vh]">
+                <table class="w-full text-sm text-left text-slate-600">
+                    <thead id="tableHead" class="text-xs text-slate-700 uppercase bg-slate-100 shadow-sm">
+                        <!-- 表頭將由 JS 動態生成 -->
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-200">
+                        <!-- 資料將由 JS 動態生成 -->
+                    </tbody>
+                </table>
+            </div>
+            <!-- 無資料提示 -->
+            <div id="noDataMessage" class="hidden py-10 text-center text-slate-500">
+                <i class="fa-regular fa-folder-open text-4xl mb-3"></i>
+                <p>找不到符合條件的藥品，請嘗試其他關鍵字。</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * 系統設定：直接使用您發布的 CSV 完整連結
+         */
+        const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSATPBmRfIX85c1RXK9QeRDyCeGZ6H2TySfVghh1EdWymMH-0VS_G2UWR4ctSXBPg/pub?gid=2049637445&single=true&output=csv';
+        const CSV_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(GOOGLE_SHEET_URL)}`;
+        // 全域變數儲存資料
+        let allData = [];
+        let headers =[];
+
+        // DOM 元素
+        const searchInput = document.getElementById('searchInput');
+        const statusMessage = document.getElementById('statusMessage');
+        const tableContainer = document.getElementById('tableContainer');
+        const tableHead = document.getElementById('tableHead');
+        const tableBody = document.getElementById('tableBody');
+        const noDataMessage = document.getElementById('noDataMessage');
+
+        // 初始化
+        async function init() {
+            fetchData();
+            setupEventListeners();
+        }
+
+        // 獲取並解析試算表資料
+        function fetchData() {
+            Papa.parse(CSV_URL, {
+                download: true,
+                header: true,         // 將第一列視為表頭，自動轉為 JSON Object
+                skipEmptyLines: true, // 忽略空行
+                complete: function(results) {
+                    if(results.data && results.data.length > 0) {
+                        headers = results.meta.fields; // 獲取動態表頭
+                        allData = results.data;
+                        
+                        renderTableHead();
+                        renderTableBody(allData);
+                        
+                        // 隱藏 Loading，顯示表格與啟用搜尋
+                        statusMessage.classList.add('hidden');
+                        tableContainer.classList.remove('hidden');
+                        searchInput.disabled = false;
+                        searchInput.focus(); // 自動聚焦在搜尋框，優化 UX
+                    } else {
+                        showError("試算表中似乎沒有資料。");
+                    }
+                },
+                error: function(err) {
+                    console.error("解析失敗:", err);
+                    showError("無法讀取資料。請確認您的網址是否正確。");
+                }
+            });
+        }
+
+        // 動態渲染表頭
+        function renderTableHead() {
+            tableHead.innerHTML = ''; // 先清空，確保不會重複生成
+            const tr = document.createElement('tr');
+            headers.forEach(headerText => {
+                const th = document.createElement('th');
+                th.scope = 'col';
+                th.className = 'px-6 py-4 font-semibold whitespace-nowrap tracking-wider';
+                th.textContent = headerText;
+                tr.appendChild(th);
+            });
+            tableHead.appendChild(tr);
+        }
+
+        // 渲染表格內容
+        function renderTableBody(data) {
+            tableBody.innerHTML = ''; // 清空舊資料
+            
+            if (data.length === 0) {
+                noDataMessage.classList.remove('hidden');
+            } else {
+                noDataMessage.classList.add('hidden');
+                
+                // 使用 DocumentFragment 提升大筆資料的渲染效能
+                const fragment = document.createDocumentFragment();
+                
+                data.forEach(row => {
+                    // 檢查是否為完全空白的無效列
+                    const isEmptyRow = Object.values(row).every(val => !val || val.trim() === '');
+                    if (isEmptyRow) return;
+
+                    const tr = document.createElement('tr');
+                    tr.className = 'bg-white hover:bg-blue-50 transition-colors duration-150';
+                    
+                    headers.forEach((header, index) => {
+                        const td = document.createElement('td');
+                        td.className = 'px-6 py-3 border-b border-slate-100';
+                        
+                        // 針對第一欄（健保碼）加粗顯示以利閱讀
+                        if(index === 0) {
+                            td.className += ' font-medium text-slate-900 whitespace-nowrap';
+                        }
+                        
+                        td.textContent = row[header] || '';
+                        tr.appendChild(td);
+                    });
+                    
+                    fragment.appendChild(tr);
+                });
+                tableBody.appendChild(fragment);
+            }
+        }
+
+        // 防抖函數 (Debounce)：避免頻繁觸發搜尋，減少運算壓力
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
+        // 搜尋過濾邏輯
+        function handleSearch(e) {
+            const keyword = e.target.value.toLowerCase().trim();
+            
+            if (keyword === '') {
+                renderTableBody(allData);
+                return;
+            }
+
+            // 過濾：只要該列有任何一個欄位的值包含關鍵字，就保留
+            const filteredData = allData.filter(row => {
+                return Object.values(row).some(value => {
+                    return value && value.toString().toLowerCase().includes(keyword);
+                });
+            });
+
+            renderTableBody(filteredData);
+        }
+
+        // 綁定事件監聽器
+        function setupEventListeners() {
+            // 使用 debounce 延遲 300 毫秒執行搜尋
+            searchInput.addEventListener('input', debounce(handleSearch, 300));
+        }
+
+        // 顯示錯誤訊息
+        function showError(msg) {
+            statusMessage.innerHTML = `
+                <div class="bg-red-50 text-red-600 p-6 rounded-lg border border-red-200 text-center max-w-lg">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl mb-2"></i>
+                    <h3 class="font-bold text-lg mb-2">資料讀取失敗</h3>
+                    <p class="text-sm">${msg}</p>
+                </div>
+            `;
+        }
+
+        // 啟動程式
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
