@@ -44,7 +44,7 @@
                         class="bg-white border border-slate-300 text-slate-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 shadow-sm" 
                         placeholder="搜尋藥品..." disabled>
                 </div>
-                <!-- 開發者工具：從 Sheets 匯入資料 (第一次使用完後可在程式碼中隱藏) -->
+                <!-- 開發者工具：從 Sheets 匯入資料 -->
                 <button id="importBtn" class="bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg text-sm px-4 py-2.5 transition-colors shadow-sm hidden" title="從Google Sheets匯入資料到Firebase">
                     <i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料
                 </button>
@@ -94,14 +94,14 @@
         </div>
     </div>
 
-    <!-- Firebase SDK (升級至您的 12.11.0 版本) -->
+    <!-- Firebase SDK (已升級至 12.11.0 版本) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
         // 加入 Firestore 資料庫模組
         import { getFirestore, collection, getDocs, doc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-        // 套用您專屬的 Firebase 設定
+        // 您專屬的 Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyBEkSyqTnL2-O_W2VVu11lyhYbNOOq1EjI",
             authDomain: "onepharmacylocation.firebaseapp.com",
@@ -147,7 +147,7 @@
                 UI.importBtn.classList.remove('hidden'); // 顯示匯入按鈕
             } catch (error) {
                 console.error("初始化失敗:", error);
-                showError("無法連接 Firebase。請確認您的 Firestore 資料庫是否已經在後台建立，並且安全規則 (Rules) 設為允許讀寫 (測試模式)。");
+                showError("無法連接 Firebase。請確認您的 Firestore 資料庫是否已經在後台建立，並且安全規則 (Rules) 設為允許讀寫。");
             }
         }
 
@@ -335,7 +335,7 @@
                 const docRef = doc(db, COLLECTION_NAME, currentEditDocId);
                 await updateDoc(docRef, updatedData);
 
-                // 更新前端記憶體資料 (不用重新讀取整個資料庫，節省流量)
+                // 更新前端記憶體資料
                 const dataIndex = allData.findIndex(item => item._id === currentEditDocId);
                 if(dataIndex > -1) {
                     allData[dataIndex] = { ...updatedData, _id: currentEditDocId };
@@ -344,7 +344,6 @@
                 closeEditModal();
                 handleSearch({ target: { value: UI.searchInput.value } });
                 
-                // 優雅的提示
                 alert('✅ 資料儲存成功！');
 
             } catch (error) {
@@ -356,7 +355,7 @@
             }
         }
 
-        // 從 Google Sheets 匯入資料 (初始化用)
+        // 🚀 升級版：從 Google Sheets 匯入資料 (具備自動清洗髒資料功能)
         function importFromGoogleSheets() {
             const confirmImport = confirm("系統即將從 Google Sheets 抓取資料並建立至 Firebase。\n這個動作大約需要幾秒鐘，請按確定繼續。");
             if(!confirmImport) return;
@@ -375,15 +374,24 @@
                     try {
                         let count = 0;
                         for (const row of results.data) {
-                            // 略過完全空白的列
+                            // 1. 略過完全空白的列
                             const isEmpty = Object.values(row).every(val => !val || val.trim() === '');
                             if (isEmpty) continue;
 
-                            // 產生文件 ID，若無健保碼則自動產生
-                            const docId = row['健保碼'] ? row['健保碼'].trim() : `auto_${Date.now()}_${count}`;
+                            // 🌟 2. 資料清洗 (Sanitization)：剔除標題是空白的欄位 🌟
+                            const cleanRow = {};
+                            for (const key in row) {
+                                // 只有當 key (欄位名稱) 存在，且不是全空白時，才把它保留下來
+                                if (key && key.trim() !== '') {
+                                    cleanRow[key] = row[key];
+                                }
+                            }
+
+                            // 3. 產生文件 ID，若無健保碼則自動產生
+                            const docId = cleanRow['健保碼'] ? cleanRow['健保碼'].trim() : `auto_${Date.now()}_${count}`;
                             
-                            // 寫入 Firebase
-                            await setDoc(doc(db, COLLECTION_NAME, docId), row);
+                            // 4. 寫入 Firebase (送入的是清洗過後乾淨的 cleanRow)
+                            await setDoc(doc(db, COLLECTION_NAME, docId), cleanRow);
                             count++;
                             
                             // 每 10 筆更新一下按鈕文字
@@ -395,7 +403,7 @@
                         window.location.reload();
                     } catch (error) {
                         console.error("匯入失敗:", error);
-                        alert("匯入失敗！請確認 Firestore 規則是否有開放寫入權限 (Start in test mode)。");
+                        alert("匯入失敗！請打開 F12 Console 查看錯誤訊息。");
                         UI.importBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 匯入初始資料';
                         UI.importBtn.disabled = false;
                     }
